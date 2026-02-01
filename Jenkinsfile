@@ -1,21 +1,20 @@
 pipeline {
-    agent {
-        label 'jenkins-slave'
-    }
+    agent { label 'jenkins-slave' }
 
     tools {
         jdk 'Java17'
         maven 'Maven3'
     }
+
     environment {
-	    APP_NAME = "Login-pipeline"
-            RELEASE = "1.0.0"
-            DOCKER_USER = "hariompal4"
-            DOCKER_PASS = 'dockerhub'
-            IMAGE_NAME = "${DOCKER_USER}" + "/" + "${APP_NAME}"
-            IMAGE_TAG = "${RELEASE}-${BUILD_NUMBER}"
-	   // JENKINS_API_TOKEN = credentials("JENKINS_API_TOKEN")//
+        APP_NAME = "Login-pipeline"
+        RELEASE = "1.0.0"
+        DOCKER_USER = "hariompal4"
+        IMAGE_NAME = "${DOCKER_USER}/${APP_NAME}"
+        IMAGE_TAG = "${RELEASE}-${BUILD_NUMBER}"
+        DOCKER_CREDS = "dockerhub-creds"
     }
+
     stages {
 
         stage("Cleanup Workspace") {
@@ -46,37 +45,32 @@ pipeline {
 
         stage("SonarQube Analysis") {
             steps {
-                script {
-                    withSonarQubeEnv(credentialsId: 'jenkins-sonarqube-token') {
-                        sh "mvn sonar:sonar"
-                    }
+                withSonarQubeEnv(credentialsId: 'jenkins-sonarqube-token') {
+                    sh "mvn sonar:sonar"
                 }
             }
         }
 
         stage("Quality Gate") {
             steps {
-                script {
-                    waitForQualityGate abortPipeline: false,
-                        credentialsId: 'jenkins-sonarqube-token'
-                }
+                waitForQualityGate abortPipeline: false,
+                    credentialsId: 'jenkins-sonarqube-token'
             }
         }
 
-          stage("Build & Push Docker Image") {
+        stage("Build & Push Docker Image") {
             steps {
                 script {
-                    docker.withRegistry('',DOCKER_PASS) {
-                        docker_image = docker.build "${IMAGE_NAME}"
-                    }
-
-                    docker.withRegistry('',DOCKER_PASS) {
-                        docker_image.push("${IMAGE_TAG}")
-                        docker_image.push('latest')
+                    docker.withRegistry(
+                        'https://index.docker.io/v1/',
+                        DOCKER_CREDS
+                    ) {
+                        def img = docker.build("${IMAGE_NAME}")
+                        img.push("${IMAGE_TAG}")
+                        img.push("latest")
                     }
                 }
             }
-
-       }
+        }
     }
 }
