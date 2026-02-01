@@ -1,70 +1,75 @@
-pipeline { 
-    agent { label 'jenkins-slave' } 
+pipeline {
+    agent { label 'jenkins-slave' }
+    tools {
+        jdk 'Java17'
+        maven 'Maven3'
+    }
+    environment {
+	    APP_NAME = "Login-App"
+            RELEASE = "1.0.0"
+            DOCKER_USER = "hariompal4"
+            DOCKER_PASS = 'dockerhub'
+            IMAGE_NAME = "${DOCKER_USER}" + "/" + "${APP_NAME}"
+            IMAGE_TAG = "${RELEASE}-${BUILD_NUMBER}"
+	   // JENKINS_API_TOKEN = credentials("JENKINS_API_TOKEN") //
+    }
+    stages{
+        stage("Cleanup Workspace"){
+                steps {
+                cleanWs()
+                }
+        }
 
-    tools { 
-        jdk 'Java17' 
-        maven 'Maven3' 
-    } 
+        stage("Checkout from SCM"){
+                steps {
+                    git branch: 'main', credentialsId: 'github', url: 'https://github.com/Ashfaque-9x/register-app'
+                }
+        }
 
-    environment { 
-        APP_NAME = "Login-pipeline" 
-        RELEASE = "1.0.0" 
-        DOCKER_USER = "hariompal4" 
-        IMAGE_NAME = "${DOCKER_USER}/${APP_NAME}" 
-        IMAGE_TAG = "${RELEASE}-${BUILD_NUMBER}" 
-        DOCKER_CREDS = "dockerhub-creds" 
-    } 
+        stage("Build Application"){
+            steps {
+                sh "mvn clean package"
+            }
 
-    stages { 
+       }
 
-        stage("Cleanup Workspace") { 
-            steps { 
-                cleanWs() 
-            } 
-        } 
+       stage("Test Application"){
+           steps {
+                 sh "mvn test"
+           }
+       }
 
-        stage("Checkout from SCM") { 
-            steps { 
-                git branch: 'main', credentialsId: 'github', url: 'https://github.com/Hariom-pal1/register-app' 
-            } 
-        } 
+       stage("SonarQube Analysis"){
+           steps {
+	           script {
+		        withSonarQubeEnv(credentialsId: 'jenkins-sonarqube-token') { 
+                        sh "mvn sonar:sonar"
+		        }
+	           }	
+           }
+       }
 
-        stage("Build Application") { 
-            steps { 
-                sh "mvn clean package" 
-            } 
-        } 
+       stage("Quality Gate"){
+           steps {
+               script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'jenkins-sonarqube-token'
+                }	
+            }
 
-        stage("Test Application") { 
-            steps { 
-                sh "mvn test" 
-            } 
-        } 
+        }
 
-        stage("SonarQube Analysis") { 
-            steps { 
-                withSonarQubeEnv(credentialsId: 'jenkins-sonarqube-token') { 
-                    sh "mvn sonar:sonar" 
-                } 
-            } 
-        } 
+        stage("Build & Push Docker Image") {
+            steps {
+                script {
+                    docker.withRegistry('',DOCKER_PASS) {
+                        docker_image = docker.build "${IMAGE_NAME}"
+                    }
 
-        stage("Quality Gate") { 
-            steps { 
-                waitForQualityGate abortPipeline: false, credentialsId: 'jenkins-sonarqube-token' 
-            } 
-        } 
+                    docker.withRegistry('',DOCKER_PASS) {
+                        docker_image.push("${IMAGE_TAG}")
+                        docker_image.push('latest')
+                    }
+                }
+            }
 
-        stage("Build & Push Docker Image") { 
-            steps { 
-                script { 
-                    docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDS) { 
-                        def docker_image = docker.build("${IMAGE_NAME}") 
-                        docker_image.push("${IMAGE_TAG}") 
-                        docker_image.push("latest") 
-                    } 
-                } 
-            } 
-        } 
-    } 
-}
+       }
